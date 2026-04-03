@@ -283,6 +283,50 @@ https://github.com/githubpnagpal/study-assistant-ai
 
 ---
 
+## Phase 8: Saving GitHub Credentials Permanently
+
+By default, CMD does not remember your GitHub credentials between sessions.
+Fix this so you never have to enter your token again.
+
+### Option 1 — Git Credential Manager (Recommended)
+Git for Windows includes this built-in. Run once:
+```cmd
+git config --global credential.helper manager
+```
+Next time you push, it asks once and saves forever in Windows Credential Manager.
+
+**To verify it's saved:**
+1. Press `Win + R` → type `control` → Enter
+2. Go to **Credential Manager** → **Windows Credentials**
+3. You should see `git:https://github.com` stored there
+
+### Option 2 — GitHub CLI (Easiest Long-Term)
+Install GitHub CLI and authenticate via browser — no tokens needed manually:
+```cmd
+winget install GitHub.cli
+gh auth login
+```
+Follow the prompts → choose **GitHub.com** → **HTTPS** → **Login with browser**.
+Done. All future `git push` commands work without any credentials.
+
+### After Setup
+Just run from your project folder:
+```cmd
+git add .
+git commit -m "your message"
+git push
+```
+No username, no token, no prompts — it just works.
+
+### Troubleshooting Credentials
+| Issue                          | Fix                                              |
+|--------------------------------|--------------------------------------------------|
+| Still asking for credentials   | Run `git config --global credential.helper manager` |
+| Wrong credentials saved        | Go to Windows Credential Manager → delete `git:https://github.com` → push again |
+| Token expired                  | Generate new PAT on GitHub → update in Credential Manager |
+
+---
+
 ## Future Improvements (Optional)
 - [ ] Switch to Sonnet 4.6 to re-enable web search
 - [ ] Add a quiz scoring system
