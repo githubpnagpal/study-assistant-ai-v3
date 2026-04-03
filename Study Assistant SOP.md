@@ -327,14 +327,111 @@ No username, no token, no prompts — it just works.
 
 ---
 
+## Phase 9: Web UI with Streamlit (v3)
+
+### Overview
+Upgraded from terminal app to a full browser-based web interface using Streamlit.
+The Multi-Agent system (Teacher + Tester) now runs in the browser with a beautiful chat UI.
+
+### New File Added
+| File    | Purpose                                  |
+|---------|------------------------------------------|
+| `app.py`| Streamlit web app — replaces terminal UI |
+
+### Tech Added
+| Library      | Purpose                              |
+|--------------|--------------------------------------|
+| `streamlit`  | Browser UI, chat interface, sidebar  |
+
+### Install
+```cmd
+pip install streamlit
+```
+
+### Run the Web App
+```cmd
+cd c:\Users\pnagp\study-assistant-ai-v3
+streamlit run app.py
+```
+Opens automatically at **http://localhost:8501**
+
+> If `streamlit` is not recognized, use:
+> ```cmd
+> c:\Users\pnagp\venv\Scripts\activate
+> streamlit run app.py
+> ```
+> Or via venv Python directly:
+> ```cmd
+> c:\Users\pnagp\venv\Scripts\python.exe -m streamlit run app.py
+> ```
+
+### UI Layout
+
+**Sidebar:**
+| Section         | Feature                                             |
+|-----------------|-----------------------------------------------------|
+| AI Provider     | Dropdown — switch between Claude Haiku, Sonnet, Groq|
+| Mode            | Learn / Quiz toggle buttons                         |
+| Score           | Live correct/total count, grade (A-F), progress bar |
+| Study Notes     | Dropdown to view saved notes per topic              |
+| Reset Session   | Clear chat history and score                        |
+
+**Main Chat Area:**
+| Element         | Detail                                              |
+|-----------------|-----------------------------------------------------|
+| 👨‍🏫 Teacher avatar | Green badge — streaming explanations               |
+| 📝 Tester avatar  | Purple badge — streaming quiz questions            |
+| 🧑‍💻 User messages | Right-aligned chat bubbles                         |
+| Chat input      | Context-aware placeholder (learn vs quiz mode)      |
+
+### Agent Routing in Web UI
+- User types → `app.py` checks current mode
+- **Learning mode** → calls `teacher_stream_gen()` → streams to `st.write_stream()`
+- **Quiz mode** → calls `tester_stream_gen()` → streams to `st.write_stream()`
+- Clicking **Quiz** button → auto-starts Tester with first question
+- Score updates live after each answer
+
+### New Generator Functions Added to `agents.py`
+| Function             | Purpose                                        |
+|----------------------|------------------------------------------------|
+| `teacher_stream_gen` | Yields text chunks for Streamlit streaming     |
+| `tester_stream_gen`  | Yields text chunks + handles score detection   |
+
+### Lesson Learned — Copying Git Repos
+When copying a project folder for a new version, always remove `.git` first:
+```cmd
+xcopy /E /I study-assistant-ai study-assistant-ai-v3
+cd study-assistant-ai-v3
+rmdir /S /Q .git
+git init
+git add .
+git commit -m "Initial commit: v3"
+```
+This avoids accidentally pushing to the wrong GitHub repository.
+
+### Version History
+| Version | Folder                    | GitHub Repo                  | Key Feature           |
+|---------|---------------------------|------------------------------|-----------------------|
+| v1      | `study-assistant-ai-v1\`  | study-assistant-ai           | Basic chat + notes    |
+| v2      | `study-assistant-ai\`     | study-assistant-ai-v2        | Multi-Agent system    |
+| v3      | `study-assistant-ai-v3\`  | study-assistant-ai-v3        | Streamlit Web UI      |
+
+### Live Repository (v3)
+https://github.com/githubpnagpal/study-assistant-ai-v3
+
+---
+
 ## Future Improvements (Optional)
+- [x] Multi-Agent system (Teacher + Tester)
+- [x] Build a Web UI with Streamlit
+- [x] Add a quiz scoring system
 - [ ] Switch to Sonnet 4.6 to re-enable web search
-- [ ] Add a quiz scoring system
-- [ ] Build a web UI (Flask or Streamlit)
 - [ ] Add a progress tracker (topics mastered vs. in progress)
 - [ ] Export notes as PDF
+- [ ] Deploy to cloud (Streamlit Cloud / Hugging Face Spaces)
+- [ ] Add voice input/output
 
 ---
 
 *Created: April 2026*
-*Project Location: c:\Users\pnagp\study-assistant-ai\*
+*Project Location: c:\Users\pnagp\study-assistant-ai-v3\*
