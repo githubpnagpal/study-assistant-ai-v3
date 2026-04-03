@@ -192,6 +192,97 @@ def run_tester(client, provider: dict, session: StudySession, user_input: str) -
 
 
 # ─────────────────────────────────────────────
+# STREAMING GENERATORS (for Streamlit web UI)
+# ─────────────────────────────────────────────
+
+def teacher_stream_gen(client, provider: dict, session: "StudySession", user_input: str):
+    """Generator — yields text chunks from Teacher. Used by st.write_stream()."""
+    session.teacher_messages.append({"role": "user", "content": user_input})
+
+    if provider["provider"] == "claude":
+        while True:
+            tool_called = False
+            with client.messages.stream(
+                model=provider["model"],
+                max_tokens=1024,
+                system=TEACHER_PROMPT,
+                tools=ALL_TOOLS,
+                messages=session.teacher_messages,
+            ) as stream:
+                for event in stream:
+                    if event.type == "content_block_delta" and event.delta.type == "text_delta":
+                        yield event.delta.text
+                final = stream.get_final_message()
+                session.teacher_messages.append({"role": "assistant", "content": final.content})
+                tool_results = handle_tool_calls(final.content)
+                if tool_results:
+                    session.teacher_messages.append({"role": "user", "content": tool_results})
+                    tool_called = True
+            if not tool_called:
+                break
+    else:
+        openai_messages = [{"role": "system", "content": TEACHER_PROMPT}] + [
+            {"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else str(m["content"])}
+            for m in session.teacher_messages
+        ]
+        stream = client.chat.completions.create(
+            model=provider["model"], messages=openai_messages, stream=True, max_tokens=1024
+        )
+        full_text = ""
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content or ""
+            full_text += delta
+            yield delta
+        session.teacher_messages.append({"role": "assistant", "content": full_text})
+
+
+def tester_stream_gen(client, provider: dict, session: "StudySession", user_input: str):
+    """Generator — yields text chunks from Tester. Used by st.write_stream()."""
+    if not session.tester_messages:
+        primer = f"The user has been studying: {session.current_topic}. Start testing them now. Ask your first question."
+        session.tester_messages.append({"role": "user", "content": primer})
+    else:
+        session.tester_messages.append({"role": "user", "content": user_input})
+
+    full_text = ""
+
+    if provider["provider"] == "claude":
+        with client.messages.stream(
+            model=provider["model"],
+            max_tokens=1024,
+            system=TESTER_PROMPT,
+            tools=ALL_TOOLS,
+            messages=session.tester_messages,
+        ) as stream:
+            for event in stream:
+                if event.type == "content_block_delta" and event.delta.type == "text_delta":
+                    full_text += event.delta.text
+                    yield event.delta.text
+            final = stream.get_final_message()
+            session.tester_messages.append({"role": "assistant", "content": final.content})
+    else:
+        openai_messages = [{"role": "system", "content": TESTER_PROMPT}] + [
+            {"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else str(m["content"])}
+            for m in session.tester_messages
+        ]
+        stream = client.chat.completions.create(
+            model=provider["model"], messages=openai_messages, stream=True, max_tokens=1024
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content or ""
+            full_text += delta
+            yield delta
+        session.tester_messages.append({"role": "assistant", "content": full_text})
+
+    # Score detection after full response
+    lower = full_text.lower()
+    if any(w in lower for w in ["correct!", "that's right", "well done", "exactly right", "✅"]):
+        session.record_answer(correct=True)
+    elif any(w in lower for w in ["incorrect", "not quite", "wrong", "❌", "actually"]):
+        session.record_answer(correct=False)
+
+
+# ─────────────────────────────────────────────
 # STREAMING HELPERS
 # ─────────────────────────────────────────────
 
