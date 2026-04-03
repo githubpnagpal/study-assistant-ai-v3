@@ -1,195 +1,187 @@
 """
-AI Study Assistant — powered by Claude Opus 4.6
-A conversational agent to help you learn AI concepts.
+AI Study Assistant v2 — Multi-Agent System
+Teacher Agent teaches. Tester Agent quizzes. You learn.
 """
 
 import os
-import json
 from dotenv import load_dotenv
-import anthropic
 from rich.console import Console
 from rich.panel import Panel
-from rich.markdown import Markdown
 from rich.prompt import Prompt
-from rich.text import Text
+from rich.table import Table
 
-from tools import ALL_TOOLS, execute_custom_tool
+from agents import StudySession, run_teacher, run_tester
+from providers import PROVIDERS, get_claude_client, get_groq_client
+from tools import list_topics
 
 load_dotenv()
-
 console = Console()
 
-SYSTEM_PROMPT = """You are an expert AI Study Assistant helping the user learn artificial intelligence concepts.
 
-Your role:
-- Explain AI/ML concepts clearly, from beginner to advanced level
-- Use analogies and examples to make abstract ideas concrete
-- Break down complex topics into digestible steps
-- Quiz the user to reinforce their understanding when appropriate
-- Suggest what to study next based on the current topic
-- Search the web for the latest AI research, papers, or resources when helpful
-- Save important explanations and summaries to the user's notes automatically
+# ─────────────────────────────────────────────
+# UI HELPERS
+# ─────────────────────────────────────────────
 
-Topics you excel at:
-- Machine Learning fundamentals (supervised, unsupervised, reinforcement learning)
-- Neural networks and deep learning
-- Transformers and Large Language Models
-- Computer Vision, NLP, and other AI domains
-- AI ethics, safety, and alignment
-- Practical implementation with Python frameworks (PyTorch, TensorFlow, scikit-learn)
-- Latest AI research and developments
+def select_provider() -> dict:
+    table = Table(title="Choose Your AI Provider", border_style="cyan", show_lines=True)
+    table.add_column("#", style="bold cyan", width=4)
+    table.add_column("Model", style="bold white")
+    table.add_column("Description", style="dim")
+    table.add_column("Cost", style="green")
 
-Always be encouraging, patient, and adapt your explanations to the user's level.
-After explaining a concept, offer to save key points to their notes or quiz them."""
+    for key, p in PROVIDERS.items():
+        table.add_row(key, p["name"], p["description"], p["cost"])
 
-
-def handle_tool_calls(response_content: list, messages: list) -> list | None:
-    """Process tool calls from the response. Returns tool results or None if no tools used."""
-    tool_use_blocks = [b for b in response_content if b.type == "tool_use"]
-    if not tool_use_blocks:
-        return None
-
-    tool_results = []
-    for block in tool_use_blocks:
-        tool_name = block.name
-
-        # Server-side tools (web_search) are handled by Claude — only custom tools need execution
-        if tool_name in ("web_search",):
-            continue
-
-        console.print(f"[dim]🔧 Using tool: {tool_name}[/dim]")
-        result = execute_custom_tool(tool_name, block.input)
-
-        if tool_name == "save_note":
-            console.print(f"[green]📝 {result}[/green]")
-        elif tool_name == "list_topics":
-            console.print(Panel(result, title="📚 Your Study Topics", border_style="blue"))
-
-        tool_results.append({
-            "type": "tool_result",
-            "tool_use_id": block.id,
-            "content": result
-        })
-
-    return tool_results if tool_results else None
-
-
-def stream_response(client: anthropic.Anthropic, messages: list) -> tuple[str, list]:
-    """Stream Claude's response and return the full text and content blocks."""
-    full_text = ""
-    content_blocks = []
-
-    console.print()
-
-    with client.messages.stream(
-        model="claude-haiku-4-5",
-        max_tokens=1024,
-        system=SYSTEM_PROMPT,
-        tools=ALL_TOOLS,
-        messages=messages,
-    ) as stream:
-        current_block_type = None
-
-        for event in stream:
-            if event.type == "content_block_start":
-                current_block_type = event.content_block.type
-                if current_block_type == "thinking":
-                    console.print("[dim italic]Thinking...[/dim italic]", end="")
-
-            elif event.type == "content_block_delta":
-                if event.delta.type == "text_delta":
-                    console.print(event.delta.text, end="", markup=False)
-                    full_text += event.delta.text
-
-            elif event.type == "content_block_stop":
-                if current_block_type == "thinking":
-                    console.print("\r" + " " * 15 + "\r", end="")  # clear thinking line
-
-        console.print()  # newline after response
-        final = stream.get_final_message()
-        content_blocks = final.content
-
-    return full_text, content_blocks
-
-
-def agentic_loop(client: anthropic.Anthropic, messages: list) -> str:
-    """Run the agentic loop, handling tool calls until Claude gives a final answer."""
-    full_text = ""
+    console.print(table)
 
     while True:
-        text, content_blocks = stream_response(client, messages)
-        full_text = text
+        choice = Prompt.ask("Select provider", choices=list(PROVIDERS.keys()), default="1")
+        provider = PROVIDERS[choice]
 
-        # Append assistant response to history
-        messages.append({"role": "assistant", "content": content_blocks})
-
-        # Check for custom tool calls
-        tool_results = handle_tool_calls(content_blocks, messages)
-
-        if tool_results:
-            messages.append({"role": "user", "content": tool_results})
-            # Continue loop to get Claude's response after tool execution
-        else:
-            # No more custom tool calls — done
-            break
-
-    return full_text
+        if provider["provider"] == "claude" and not os.getenv("ANTHROPIC_API_KEY"):
+            console.print("[red]ANTHROPIC_API_KEY not set in .env[/red]")
+            continue
+        if provider["provider"] == "groq" and not os.getenv("GROQ_API_KEY"):
+            console.print("[red]GROQ_API_KEY not set in .env — get a free key at console.groq.com[/red]")
+            continue
+        return provider
 
 
-def print_welcome():
-    console.print(Panel.fit(
-        "[bold cyan]🤖 AI Study Assistant[/bold cyan]\n"
-        "[dim]Powered by Claude Opus 4.6 with adaptive thinking[/dim]\n\n"
-        "I'm here to help you learn artificial intelligence!\n"
-        "Ask me to explain any AI concept, quiz you, or find resources.\n\n"
-        "[dim]Commands: 'notes' — view topics | 'quit' — exit[/dim]",
-        border_style="cyan"
+def get_client(provider: dict):
+    if provider["provider"] == "claude":
+        return get_claude_client()
+    return get_groq_client()
+
+
+def print_welcome(provider: dict):
+    console.print(Panel(
+        "[bold cyan]AI Study Assistant v2[/bold cyan] — [bold yellow]Multi-Agent Mode[/bold yellow]\n\n"
+        "[bold white]Two agents are ready:[/bold white]\n"
+        "  [green]Teacher[/green] — explains any AI concept at your level\n"
+        "  [magenta]Tester[/magenta]  — quizzes you and tracks your score\n\n"
+        f"[dim]Using: {provider['name']}[/dim]\n\n"
+        "[bold]Commands:[/bold]\n"
+        "  [green]quiz[/green] or [green]quiz <topic>[/green] — start a quiz\n"
+        "  [green]learn[/green]                  — go back to learning\n"
+        "  [green]score[/green]                  — see your current score\n"
+        "  [green]notes[/green]                  — view saved study notes\n"
+        "  [green]switch[/green]                 — change AI provider\n"
+        "  [green]quit[/green]                   — exit",
+        border_style="cyan",
+        title="Welcome"
     ))
 
 
+def print_mode_banner(mode: str, topic: str):
+    if mode == "testing":
+        console.print(Panel(
+            f"[bold magenta]QUIZ MODE[/bold magenta] — Topic: [yellow]{topic}[/yellow]\n"
+            "[dim]Answer the questions. Type 'learn' to go back to studying.[/dim]",
+            border_style="magenta"
+        ))
+    else:
+        console.print(Panel(
+            f"[bold green]LEARN MODE[/bold green] — Topic: [yellow]{topic}[/yellow]\n"
+            "[dim]Ask me anything about AI! Type 'quiz' when ready to be tested.[/dim]",
+            border_style="green"
+        ))
+
+
+def print_score(session: StudySession):
+    console.print(Panel(
+        session.get_score_display(),
+        title="Your Score",
+        border_style="yellow"
+    ))
+
+
+# ─────────────────────────────────────────────
+# MAIN
+# ─────────────────────────────────────────────
+
 def main():
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        console.print("[red]Error: ANTHROPIC_API_KEY not set.[/red]")
-        console.print("Copy [bold].env.example[/bold] to [bold].env[/bold] and add your API key.")
-        return
+    provider = select_provider()
+    client = get_client(provider)
+    session = StudySession()
 
-    client = anthropic.Anthropic(api_key=api_key)
-    messages = []
-
-    print_welcome()
+    print_welcome(provider)
 
     while True:
+        # Show prompt based on current mode
+        mode_label = "[magenta]Tester>[/magenta]" if session.mode == "testing" else "[green]Teacher>[/green]"
+        prompt_label = f"\n[bold]{mode_label}[/bold] [bold white]You[/bold white]"
+
         try:
-            user_input = Prompt.ask("\n[bold green]You[/bold green]").strip()
+            user_input = Prompt.ask(prompt_label).strip()
         except (KeyboardInterrupt, EOFError):
-            console.print("\n[dim]Goodbye! Keep learning! 🚀[/dim]")
+            console.print("\n[dim]Goodbye! Keep learning![/dim]")
             break
 
         if not user_input:
             continue
 
+        # ── Commands ──────────────────────────────────
+
         if user_input.lower() in ("quit", "exit", "bye"):
-            console.print("[dim]Goodbye! Keep learning! 🚀[/dim]")
+            print_score(session)
+            console.print("[dim]Goodbye! Keep learning![/dim]")
             break
 
-        if user_input.lower() == "notes":
-            from tools import list_topics
-            console.print(Panel(list_topics(), title="📚 Your Study Topics", border_style="blue"))
+        if user_input.lower() == "score":
+            print_score(session)
             continue
 
-        messages.append({"role": "user", "content": user_input})
+        if user_input.lower() == "notes":
+            console.print(Panel(list_topics(), title="Your Study Topics", border_style="blue"))
+            continue
 
-        console.print("\n[bold blue]Assistant[/bold blue]", end=" ")
+        if user_input.lower() == "switch":
+            console.print()
+            provider = select_provider()
+            client = get_client(provider)
+            session = StudySession()
+            console.print(f"[green]Switched to {provider['name']}. Session reset.[/green]")
+            continue
 
-        try:
-            agentic_loop(client, messages)
-        except anthropic.RateLimitError:
-            console.print("[red]Rate limited. Please wait a moment and try again.[/red]")
-            messages.pop()  # remove the failed user message
-        except anthropic.APIError as e:
-            console.print(f"[red]API error: {e.message}[/red]")
-            messages.pop()
+        if user_input.lower() == "learn":
+            session.switch_to_learning()
+            print_mode_banner("learning", session.current_topic)
+            continue
+
+        if user_input.lower().startswith("quiz"):
+            parts = user_input.split(maxsplit=1)
+            topic = parts[1] if len(parts) > 1 else session.current_topic
+            session.switch_to_testing(topic)
+            print_mode_banner("testing", topic)
+
+            # Tester starts with a question immediately
+            console.print(f"\n[bold magenta]Tester[/bold magenta] [dim]({provider['name']})[/dim]")
+            try:
+                run_tester(client, provider, session, "")
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/red]")
+            continue
+
+        # ── Route to correct agent ─────────────────────
+
+        if session.mode == "learning":
+            # Update current topic from what user is asking about
+            session.current_topic = user_input[:50]  # rough topic capture
+            console.print(f"\n[bold green]Teacher[/bold green] [dim]({provider['name']})[/dim]")
+            try:
+                run_teacher(client, provider, session, user_input)
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/red]")
+                console.print("[dim]Type 'switch' to try a different provider.[/dim]")
+                session.teacher_messages.pop()
+
+        elif session.mode == "testing":
+            console.print(f"\n[bold magenta]Tester[/bold magenta] [dim]({provider['name']})[/dim]")
+            try:
+                run_tester(client, provider, session, user_input)
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/red]")
+                console.print("[dim]Type 'switch' to try a different provider.[/dim]")
 
 
 if __name__ == "__main__":
