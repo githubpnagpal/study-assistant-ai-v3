@@ -202,6 +202,87 @@ python main.py
 
 ---
 
+## Phase 7: Pushing to GitHub
+
+### Step 1 — Create .gitignore
+Protect sensitive files before pushing:
+```
+# .gitignore
+.env                ← API key (never push this)
+__pycache__/
+*.pyc
+notes/
+.vscode/
+```
+
+### Step 2 — Initialize Git Locally
+```cmd
+cd c:\Users\pnagp\study-assistant-ai
+git init
+git add .
+git commit -m "Initial commit: AI Study Assistant"
+```
+
+> If you see "Author identity unknown", set your identity first:
+> ```cmd
+> git config --global user.email "you@example.com"
+> git config --global user.name "Your Name"
+> ```
+> Then repeat the `git add .` and `git commit` commands.
+
+### Step 3 — Create GitHub Repository
+1. Go to github.com → Sign in
+2. Click **+** (top right) → **New repository**
+3. Name: `study-assistant-ai`
+4. Description: `AI-powered Study Assistant for learning Artificial Intelligence concepts. Built with Python & Claude API. Features streaming chat, note saving, topic tracking, and adaptive explanations for all levels.`
+5. Set Public or Private
+6. **Do NOT** check Add README or Add .gitignore (already created locally)
+7. Click **Create repository**
+
+### Step 4 — Create a Personal Access Token (PAT)
+GitHub no longer accepts passwords — use a PAT instead:
+1. GitHub → Profile photo → **Settings**
+2. Scroll down → **Developer settings**
+3. **Personal access tokens** → **Tokens (classic)**
+4. Click **Generate new token (classic)**
+5. Name it: `study-assistant`
+6. Check the **repo** checkbox
+7. Click **Generate token**
+8. **Copy the token immediately** (shown only once)
+
+### Step 5 — Connect and Push
+```cmd
+git remote add origin https://github.com/githubpnagpal/study-assistant-ai.git
+git branch -M main
+git remote set-url origin https://githubpnagpal:YOUR_TOKEN@github.com/githubpnagpal/study-assistant-ai.git
+git push -u origin main
+```
+
+### What Gets Pushed vs Protected
+| File                    | Pushed? | Reason                    |
+|-------------------------|---------|---------------------------|
+| `main.py`               | ✅ Yes  | Safe                      |
+| `tools.py`              | ✅ Yes  | Safe                      |
+| `requirements.txt`      | ✅ Yes  | Safe                      |
+| `.env.example`          | ✅ Yes  | Template only, no secrets |
+| `Study Assistant SOP.md`| ✅ Yes  | Safe                      |
+| `.gitignore`            | ✅ Yes  | Safe                      |
+| `.env`                  | ❌ No   | Contains API key          |
+| `notes/`                | ❌ No   | Personal study data       |
+
+### Troubleshooting GitHub Errors
+| Error                              | Cause                        | Fix                                      |
+|------------------------------------|------------------------------|------------------------------------------|
+| `remote origin already exists`     | Already added remote         | Run `git remote set-url origin <url>`    |
+| `src refspec main does not match`  | Nothing committed yet        | Run `git add .` then `git commit` first  |
+| `403 Write access not granted`     | No PAT or wrong credentials  | Use PAT in remote URL (Step 5)           |
+| `Author identity unknown`          | Git user not configured      | Run `git config --global user.email/name`|
+
+### Live Repository
+https://github.com/githubpnagpal/study-assistant-ai
+
+---
+
 ## Future Improvements (Optional)
 - [ ] Switch to Sonnet 4.6 to re-enable web search
 - [ ] Add a quiz scoring system
